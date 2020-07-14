@@ -11,10 +11,16 @@ import * as restify from 'restify';
 
 // Import required bot services.
 // See https://aka.ms/bot-services to learn more about the different parts of a bot.
-import { BotFrameworkAdapter } from 'botbuilder';
+import { BotFrameworkAdapter, MemoryStorage, ConversationState, UserState } from 'botbuilder';
+import { ApplicationInsightsTelemetryClient, ApplicationInsightsWebserverMiddleware, TelemetryInitializerMiddleware } from 'botbuilder-applicationinsights';
+import { TelemetryLoggerMiddleware, NullTelemetryClient } from 'botbuilder-core';
 
 // This bot's main dialog.
-import { EchoBot } from './bot';
+import { EchoBot } from './echoBot';
+import { StateBot } from './stateBot';
+import { DialogBot } from './dialogBot';
+import { FavoriteFoodDialog } from './dialogs/favoriteFoodDialog';
+import { LanguageGenerationBot } from './languageGenerationBot';
 
 
 // Create HTTP server.
@@ -55,8 +61,58 @@ const onTurnErrorHandler = async (context, error) => {
 // Set the onTurnError for the singleton BotFrameworkAdapter.
 adapter.onTurnError = onTurnErrorHandler;
 
-// Create the main dialog.
-const myBot = new EchoBot();
+// --
+// Application Insights へテレメトリ送信を実装
+function getTelemetryClient(instrumentationKey: string) {
+    if (instrumentationKey) {
+        return new ApplicationInsightsTelemetryClient(instrumentationKey);
+    }
+    return new NullTelemetryClient();
+}
+
+const telemetryClient = getTelemetryClient(process.env.InstrumentationKey);
+const telemetryLoggerMiddleware = new TelemetryLoggerMiddleware(telemetryClient);
+const initializerMiddleware = new TelemetryInitializerMiddleware(telemetryLoggerMiddleware);
+adapter.use(initializerMiddleware);
+// --
+
+// // 1. Echo bot
+// // Create the main dialog.
+// const myBot = new EchoBot();
+// // 1. --
+
+// // 2. Dialog bot
+// // インメモリのストレージインスタンスを生成する
+// const memoryStorage = new MemoryStorage();
+
+// // Conversation state と User state インスタンスを生成する
+// const conversationState = new ConversationState(memoryStorage);
+// const userState = new UserState(memoryStorage);
+
+// // bot のインスタンスを生成する
+// const myBot = new StateBot(conversationState, userState);
+// // 2. --
+
+// 3. Favorite Food bot
+// インメモリのストレージインスタンスを生成する
+const memoryStorage = new MemoryStorage();
+
+// User state インスタンスを生成する
+const conversationState = new ConversationState(memoryStorage);
+const userState = new UserState(memoryStorage);
+
+// ダイアログ インスタンスを生成する
+const dialog = new FavoriteFoodDialog(userState);
+dialog.telemetryClient = telemetryClient;           // Application Insights へのテレメトリ送信
+
+// bot のインスタンスを生成する
+const myBot = new DialogBot(conversationState, userState, dialog);
+// 3. --
+
+// // 4. Language Generation
+// // bot のインスタンスを生成する
+// const myBot = new LanguageGenerationBot();
+// // 4. --
 
 // Listen for incoming requests.
 server.post('/api/messages', (req, res) => {
@@ -65,6 +121,9 @@ server.post('/api/messages', (req, res) => {
         await myBot.run(context);
     });
 });
+
+// すべてのアクティビティを取得するために、 Applciation Insights ミドルウェアを有効にする
+server.use(restify.plugins.bodyParser());
 
 // Listen for Upgrade requests for Streaming.
 server.on('upgrade', (req, socket, head) => {

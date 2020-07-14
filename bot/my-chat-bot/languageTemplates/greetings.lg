@@ -1,0 +1,4 @@
+# greetingTemplate
+- こんばんは！ ${user.name} さん
+- ${user.name} さん、Cogbot へようこそ！
+- 今日の晩御飯はなんでしたか？ ${user.name} さん
